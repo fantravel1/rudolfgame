@@ -347,7 +347,10 @@ const Game = {
 
         } catch (error) {
             console.error('Error starting level:', error);
-            this.showError('Failed to start level. Please try again.');
+            console.error('Stack:', error.stack);
+            // Try to show game screen anyway
+            UI.showScreen('game');
+            this.showError('Failed to start level: ' + error.message);
         }
     },
 
