@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="theme-color" content="#1a1a2e">
+    <meta name="description" content="Tilt your phone. Shake to boost. Save Christmas. You ARE Rudolf.">
+
+    <title>Rudolf Game - Save Christmas!</title>
+
+    <link rel="manifest" href="manifest.json">
+    <link rel="icon" type="image/png" href="assets/sprites/favicon.png">
+    <link rel="apple-touch-icon" href="assets/sprites/icon-192.png">
+    <link rel="stylesheet" href="css/game.css">
+</head>
+<body>
+    <!-- Game Container -->
+    <div id="game-container">
+        <!-- Start Screen -->
+        <div id="start-screen" class="screen active">
+            <div class="title-container">
+                <h1 class="game-title">RUDOLF</h1>
+                <div class="rudolf-icon">🦌</div>
+                <p class="tagline">Tilt to fly. Shake to glow. Save Christmas.</p>
+            </div>
+            <button id="play-btn" class="btn btn-primary">
+                <span class="btn-icon">🎮</span> PLAY
+            </button>
+            <button id="settings-btn" class="btn btn-secondary">
+                <span class="btn-icon">⚙️</span> Settings
+            </button>
+            <p class="motion-hint">📱 Hold your phone flat to start</p>
+        </div>
+
+        <!-- Permission Screen -->
+        <div id="permission-screen" class="screen">
+            <div class="permission-content">
+                <div class="permission-icon">📱</div>
+                <h2>Motion Access Needed</h2>
+                <p>Rudolf needs to feel your tilts and shakes!</p>
+                <button id="grant-permission-btn" class="btn btn-primary">
+                    Allow Motion Access
+                </button>
+                <p class="permission-note">Required for tilt flying and shake boosting</p>
+            </div>
+        </div>
+
+        <!-- Calibration Screen -->
+        <div id="calibration-screen" class="screen">
+            <div class="calibration-content">
+                <div class="calibration-icon">📐</div>
+                <h2>Calibrating...</h2>
+                <p>Hold your phone in playing position</p>
+                <div class="calibration-progress">
+                    <div class="calibration-bar"></div>
+                </div>
+                <p class="calibration-hint">Keep steady for 3 seconds</p>
+            </div>
+        </div>
+
+        <!-- Game Screen -->
+        <div id="game-screen" class="screen">
+            <!-- HUD -->
+            <div id="hud">
+                <div class="hud-top">
+                    <div class="hud-item score">
+                        <span class="hud-label">Score</span>
+                        <span id="score-value">0</span>
+                    </div>
+                    <div class="hud-item timer">
+                        <span id="timer-value">90</span>
+                        <span class="hud-label">sec</span>
+                    </div>
+                    <div class="hud-item chimneys">
+                        <span id="chimneys-found">0</span>/<span id="chimneys-total">5</span>
+                        <span class="hud-label">🏠</span>
+                    </div>
+                </div>
+                <div class="hud-bottom">
+                    <div class="boost-charges" id="boost-charges">
+                        <span class="boost-dot active">🔴</span>
+                        <span class="boost-dot active">🔴</span>
+                        <span class="boost-dot active">🔴</span>
+                    </div>
+                    <div class="level-indicator">
+                        Level <span id="level-number">1</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Game Canvas -->
+            <canvas id="game-canvas"></canvas>
+
+            <!-- Pause Overlay -->
+            <div id="pause-overlay" class="overlay hidden">
+                <div class="overlay-content">
+                    <h2>PAUSED</h2>
+                    <button id="resume-btn" class="btn btn-primary">Resume</button>
+                    <button id="quit-btn" class="btn btn-secondary">Quit to Menu</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Success Screen -->
+        <div id="success-screen" class="screen">
+            <div class="result-content">
+                <h1 class="result-title success">🎄 HOLIDAYS SAVED! 🎄</h1>
+                <p class="result-subtitle">Rudolf, you absolute LEGEND.</p>
+                <div class="result-stats">
+                    <div class="stat">
+                        <span class="stat-label">Score</span>
+                        <span id="success-score" class="stat-value">0</span>
+                    </div>
+                    <div class="stat">
+                        <span class="stat-label">Time Left</span>
+                        <span id="success-time" class="stat-value">0s</span>
+                    </div>
+                    <div class="stat">
+                        <span class="stat-label">Rank</span>
+                        <span id="success-rank" class="stat-value">⭐⭐⭐</span>
+                    </div>
+                </div>
+                <button id="next-level-btn" class="btn btn-primary">
+                    <span class="btn-icon">➡️</span> Next Level
+                </button>
+                <p class="result-hint">The fog grows thicker...</p>
+            </div>
+        </div>
+
+        <!-- Failure Screen -->
+        <div id="failure-screen" class="screen">
+            <div class="result-content">
+                <h1 class="result-title failure">❄️ THE FOG WAS TOO THICK ❄️</h1>
+                <p class="result-subtitle">Christmas morning came... but the presents didn't.</p>
+                <div class="result-stats">
+                    <div class="stat">
+                        <span class="stat-label">Chimneys Found</span>
+                        <span id="failure-chimneys" class="stat-value">0/5</span>
+                    </div>
+                    <div class="stat">
+                        <span class="stat-label">Score</span>
+                        <span id="failure-score" class="stat-value">0</span>
+                    </div>
+                </div>
+                <button id="retry-btn" class="btn btn-primary">
+                    <span class="btn-icon">🔄</span> Try Again
+                </button>
+                <p class="result-hint">📳 Or shake phone to retry!</p>
+            </div>
+        </div>
+
+        <!-- Settings Screen -->
+        <div id="settings-screen" class="screen">
+            <div class="settings-content">
+                <h2>Settings</h2>
+
+                <div class="setting-group">
+                    <label class="setting-label">Tilt Sensitivity</label>
+                    <input type="range" id="tilt-sensitivity" min="1" max="10" value="5">
+                    <div class="setting-hints">
+                        <span>Gentle</span>
+                        <span>Extreme</span>
+                    </div>
+                </div>
+
+                <div class="setting-group">
+                    <label class="setting-label">Shake Sensitivity</label>
+                    <input type="range" id="shake-sensitivity" min="1" max="10" value="5">
+                    <div class="setting-hints">
+                        <span>Earthquake</span>
+                        <span>Feather</span>
+                    </div>
+                </div>
+
+                <div class="setting-group">
+                    <label class="setting-label">
+                        <input type="checkbox" id="sound-toggle" checked>
+                        Sound Effects
+                    </label>
+                </div>
+
+                <div class="setting-group">
+                    <label class="setting-label">
+                        <input type="checkbox" id="haptics-toggle" checked>
+                        Haptic Feedback
+                    </label>
+                </div>
+
+                <button id="calibrate-btn" class="btn btn-secondary">
+                    Recalibrate Tilt
+                </button>
+
+                <button id="settings-back-btn" class="btn btn-primary">
+                    Back to Menu
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Audio Elements -->
+    <audio id="audio-wind" loop preload="auto"></audio>
+    <audio id="audio-jingle" loop preload="auto"></audio>
+    <audio id="audio-boost" preload="auto"></audio>
+    <audio id="audio-deliver" preload="auto"></audio>
+    <audio id="audio-powerup" preload="auto"></audio>
+
+    <!-- Scripts -->
+    <script src="js/controls/haptics.js"></script>
+    <script src="js/controls/tilt.js"></script>
+    <script src="js/controls/shake.js"></script>
+    <script src="js/controls/touch.js"></script>
+    <script src="js/fog.js"></script>
+    <script src="js/rudolf.js"></script>
+    <script src="js/sleigh.js"></script>
+    <script src="js/chimney.js"></script>
+    <script src="js/powerups.js"></script>
+    <script src="js/levels.js"></script>
+    <script src="js/ui.js"></script>
+    <script src="js/game.js"></script>
+
+    <!-- Service Worker Registration -->
+    <script>
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('sw.js')
+                    .then(reg => console.log('SW registered'))
+                    .catch(err => console.log('SW registration failed:', err));
+            });
+        }
+    </script>
+</body>
+</html>
