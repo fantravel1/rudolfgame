@@ -341,7 +341,14 @@ const TiltControls = {
                 this.smoothedGamma = 0;
                 this.smoothedBeta = 0;
 
-                if (onComplete) onComplete();
+                console.log('Calibration finished, calling onComplete callback');
+                if (onComplete) {
+                    try {
+                        onComplete();
+                    } catch (e) {
+                        console.error('Error in calibration onComplete callback:', e);
+                    }
+                }
             }
         };
 

@@ -274,8 +274,12 @@ const Game = {
                 UI.updateCalibrationProgress(progress);
             },
             () => {
+                console.log('Calibration complete, starting level...');
                 UI.showToast('Calibration complete!');
-                this.startLevel(Levels.currentLevel);
+                // Small delay to ensure UI updates are processed
+                setTimeout(() => {
+                    this.startLevel(Levels.currentLevel);
+                }, 100);
             }
         );
     },
@@ -284,9 +288,11 @@ const Game = {
      * Start a specific level
      */
     startLevel(levelNumber) {
+        console.log('Starting level:', levelNumber);
         try {
             Levels.setLevel(levelNumber);
             this.currentLevel = Levels.getCurrentConfig();
+            console.log('Level config:', this.currentLevel);
 
             // Reset score and tracking
             this.score = 0;
@@ -313,9 +319,11 @@ const Game = {
             UI.updateBoostCharges(3);
 
             // Start game
+            console.log('Showing game screen...');
             UI.showScreen('game');
             this.state = 'playing';
             this.isRunning = true;
+            console.log('Game state:', this.state, 'isRunning:', this.isRunning);
 
             // Enable controls
             TiltControls.enable();
