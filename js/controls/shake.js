@@ -1,14 +1,15 @@
 /**
  * Shake Detection - Accelerometer-based shake detection for boost
- * Uses Device Motion API to detect phone shakes
+ * Uses Device Motion API with cross-device compatibility
  */
 const ShakeDetection = {
     enabled: false,
     hasPermission: false,
-    sensitivity: 15,                    // Shake threshold (lower = more sensitive)
+    isInitialized: false,
+    sensitivity: 15,
 
     // Cooldown settings
-    cooldown: 2000,                     // 2 seconds between shakes
+    cooldown: 2000,
     lastShake: 0,
 
     // Boost charges
@@ -17,15 +18,24 @@ const ShakeDetection = {
 
     // Overheat mechanic
     isOverheated: false,
-    overheatDuration: 5000,             // 5 seconds overheat penalty
+    overheatDuration: 5000,
     overheatTimer: null,
-    shakeCount: 0,                      // Track rapid shakes
-    shakeCountWindow: 3000,             // Time window to count shakes
+    shakeCount: 0,
+    shakeCountWindow: 3000,
     shakeCountTimer: null,
-    maxRapidShakes: 5,                  // Shakes before overheat
+    maxRapidShakes: 5,
 
     // Motion tracking
     lastAcceleration: { x: 0, y: 0, z: 0 },
+    accelerationBuffer: [],
+    bufferSize: 5,
+
+    // Fallback controls
+    useFallback: false,
+    _spaceHandler: null,
+
+    // Event handler reference
+    _motionHandler: null,
 
     // Callbacks
     onShake: null,
@@ -37,31 +47,44 @@ const ShakeDetection = {
      * Check if Device Motion API is supported
      */
     isSupported() {
-        return 'DeviceMotionEvent' in window;
+        return 'DeviceMotionEvent' in window &&
+               window.DeviceCompat &&
+               DeviceCompat.hasMotion;
     },
 
     /**
-     * Request permission for device motion (required on iOS 13+)
+     * Request permission for device motion
      */
     async requestPermission() {
         if (!this.isSupported()) {
-            console.warn('Device motion not supported');
-            return false;
+            console.warn('Device motion not supported, using fallback');
+            this.useFallback = true;
+            return true;
+        }
+
+        // Desktop fallback
+        if (window.DeviceCompat && DeviceCompat.needsFallbackControls()) {
+            this.useFallback = true;
+            return true;
         }
 
         // iOS 13+ requires explicit permission
-        if (typeof DeviceMotionEvent.requestPermission === 'function') {
+        if (typeof DeviceMotionEvent !== 'undefined' &&
+            typeof DeviceMotionEvent.requestPermission === 'function') {
             try {
                 const permission = await DeviceMotionEvent.requestPermission();
                 this.hasPermission = permission === 'granted';
-                return this.hasPermission;
+                if (!this.hasPermission) {
+                    this.useFallback = true;
+                }
+                return true;
             } catch (error) {
-                console.error('Permission request failed:', error);
-                return false;
+                console.error('Motion permission failed:', error);
+                this.useFallback = true;
+                return true;
             }
         }
 
-        // Android and older iOS don't need permission
         this.hasPermission = true;
         return true;
     },
@@ -70,21 +93,52 @@ const ShakeDetection = {
      * Initialize shake detection
      */
     async init() {
+        if (this.isInitialized) return true;
+
         const granted = await this.requestPermission();
         if (!granted) {
-            console.warn('Motion permission not granted');
             return false;
         }
 
         this.bindEvents();
+        this.isInitialized = true;
         return true;
+    },
+
+    /**
+     * Bind events
+     */
+    bindEvents() {
+        if (this.useFallback) {
+            this.bindKeyboardEvents();
+        } else {
+            this.bindMotionEvents();
+        }
     },
 
     /**
      * Bind device motion events
      */
-    bindEvents() {
-        window.addEventListener('devicemotion', (e) => this.handleMotion(e), true);
+    bindMotionEvents() {
+        if (this._motionHandler) {
+            window.removeEventListener('devicemotion', this._motionHandler);
+        }
+
+        this._motionHandler = (e) => this.handleMotion(e);
+        window.addEventListener('devicemotion', this._motionHandler, { passive: true });
+    },
+
+    /**
+     * Bind keyboard fallback (spacebar for boost)
+     */
+    bindKeyboardEvents() {
+        this._spaceHandler = (e) => {
+            if (e.code === 'Space' && this.enabled) {
+                e.preventDefault();
+                this.manualTrigger();
+            }
+        };
+        window.addEventListener('keydown', this._spaceHandler);
     },
 
     /**
@@ -93,30 +147,60 @@ const ShakeDetection = {
     handleMotion(event) {
         if (!this.enabled || this.isOverheated) return;
 
-        const acceleration = event.accelerationIncludingGravity;
-        if (!acceleration) return;
+        // Get acceleration with fallback
+        const acceleration = event.accelerationIncludingGravity ||
+                            event.acceleration ||
+                            { x: 0, y: 0, z: 0 };
 
-        // Calculate total acceleration change
-        const deltaX = Math.abs(acceleration.x - this.lastAcceleration.x);
-        const deltaY = Math.abs(acceleration.y - this.lastAcceleration.y);
-        const deltaZ = Math.abs(acceleration.z - this.lastAcceleration.z);
-        const totalDelta = deltaX + deltaY + deltaZ;
+        if (!acceleration || acceleration.x === null) return;
 
-        // Update last acceleration
-        this.lastAcceleration = {
+        const current = {
             x: acceleration.x || 0,
             y: acceleration.y || 0,
             z: acceleration.z || 0
         };
 
+        // Calculate delta
+        const deltaX = Math.abs(current.x - this.lastAcceleration.x);
+        const deltaY = Math.abs(current.y - this.lastAcceleration.y);
+        const deltaZ = Math.abs(current.z - this.lastAcceleration.z);
+        const totalDelta = deltaX + deltaY + deltaZ;
+
+        // Add to buffer for smoothing
+        this.accelerationBuffer.push(totalDelta);
+        if (this.accelerationBuffer.length > this.bufferSize) {
+            this.accelerationBuffer.shift();
+        }
+
+        // Get average acceleration
+        const avgDelta = this.accelerationBuffer.reduce((a, b) => a + b, 0) /
+                        this.accelerationBuffer.length;
+
+        // Update last acceleration
+        this.lastAcceleration = current;
+
         // Check for shake
         const now = Date.now();
         const timeSinceLastShake = now - this.lastShake;
 
-        if (totalDelta > this.sensitivity && timeSinceLastShake > this.cooldown) {
+        if (avgDelta > this.sensitivity && timeSinceLastShake > this.cooldown) {
             if (this.charges > 0) {
                 this.triggerShake();
             }
+        }
+    },
+
+    /**
+     * Manual trigger (for fallback or button)
+     */
+    manualTrigger() {
+        if (!this.enabled || this.isOverheated) return;
+
+        const now = Date.now();
+        const timeSinceLastShake = now - this.lastShake;
+
+        if (timeSinceLastShake > this.cooldown && this.charges > 0) {
+            this.triggerShake();
         }
     },
 
@@ -126,20 +210,16 @@ const ShakeDetection = {
     triggerShake() {
         const now = Date.now();
         this.lastShake = now;
-
-        // Use a charge
         this.charges--;
 
         // Track for overheat
         this.shakeCount++;
         this.resetShakeCountTimer();
 
-        // Check for overheat
         if (this.shakeCount >= this.maxRapidShakes) {
             this.overheat();
         }
 
-        // Notify listeners
         if (this.onShake) {
             this.onShake();
         }
@@ -148,14 +228,13 @@ const ShakeDetection = {
             this.onChargeChange(this.charges);
         }
 
-        // Haptic feedback
         if (window.Haptics) {
             Haptics.boost();
         }
     },
 
     /**
-     * Reset the shake count timer
+     * Reset shake count timer
      */
     resetShakeCountTimer() {
         if (this.shakeCountTimer) {
@@ -178,7 +257,6 @@ const ShakeDetection = {
             this.onOverheat();
         }
 
-        // Recover after duration
         this.overheatTimer = setTimeout(() => {
             this.isOverheated = false;
             if (this.onCooldownEnd) {
@@ -189,16 +267,13 @@ const ShakeDetection = {
 
     /**
      * Set shake sensitivity
-     * @param {number} value - Sensitivity from 1-10 (UI scale)
      */
     setSensitivity(value) {
-        // Convert UI scale (1-10) to threshold (25 - 8)
-        // Higher UI value = lower threshold = more sensitive
         this.sensitivity = 25 - (value - 1) * 1.89;
     },
 
     /**
-     * Add a boost charge (from carrot power-up)
+     * Add a boost charge
      */
     addCharge() {
         if (this.charges < this.maxCharges) {
@@ -210,7 +285,7 @@ const ShakeDetection = {
     },
 
     /**
-     * Reset charges for new level
+     * Reset charges
      */
     resetCharges() {
         this.charges = this.maxCharges;
@@ -228,11 +303,18 @@ const ShakeDetection = {
     },
 
     /**
-     * Get time until next boost is available
+     * Get cooldown remaining
      */
     getCooldownRemaining() {
         const elapsed = Date.now() - this.lastShake;
         return Math.max(0, this.cooldown - elapsed);
+    },
+
+    /**
+     * Check if using fallback
+     */
+    isUsingFallback() {
+        return this.useFallback;
     },
 
     /**
@@ -250,13 +332,14 @@ const ShakeDetection = {
     },
 
     /**
-     * Reset state for new game
+     * Reset state
      */
     reset() {
         this.charges = this.maxCharges;
         this.isOverheated = false;
         this.shakeCount = 0;
         this.lastShake = 0;
+        this.accelerationBuffer = [];
 
         if (this.overheatTimer) {
             clearTimeout(this.overheatTimer);
@@ -271,8 +354,21 @@ const ShakeDetection = {
         if (this.onChargeChange) {
             this.onChargeChange(this.charges);
         }
+    },
+
+    /**
+     * Cleanup
+     */
+    destroy() {
+        if (this._motionHandler) {
+            window.removeEventListener('devicemotion', this._motionHandler);
+        }
+        if (this._spaceHandler) {
+            window.removeEventListener('keydown', this._spaceHandler);
+        }
+        this.isInitialized = false;
     }
 };
 
-// Export for use in other modules
+// Export
 window.ShakeDetection = ShakeDetection;

@@ -1,20 +1,20 @@
 /**
- * Touch Controls - Tap handlers for game interactions
- * Handles tap, double-tap, hold, and two-finger gestures
+ * Touch Controls - Tap handlers with cross-device compatibility
+ * Handles touch, mouse, and pointer events
  */
 const TouchControls = {
     enabled: false,
+    isInitialized: false,
 
     // Touch tracking
-    touches: [],
     lastTap: 0,
     lastTapPosition: { x: 0, y: 0 },
 
-    // Timing thresholds (ms)
+    // Timing thresholds
     doubleTapThreshold: 300,
     holdThreshold: 500,
 
-    // Distance thresholds (px)
+    // Distance thresholds
     doubleTapDistance: 50,
 
     // Hold state
@@ -22,38 +22,84 @@ const TouchControls = {
     holdTimer: null,
     holdPosition: { x: 0, y: 0 },
 
-    // Double-tap radar cooldown
-    radarCooldown: 10000,               // 10 seconds
+    // Radar cooldown
+    radarCooldown: 10000,
     lastRadar: 0,
 
+    // Active touches
+    activeTouches: new Map(),
+
+    // Target element
+    targetElement: null,
+
+    // Event handler references
+    _handlers: {},
+
+    // Mouse state (for desktop)
+    isMouseDown: false,
+
     // Callbacks
-    onTap: null,                        // (x, y) - Single tap
-    onDoubleTap: null,                  // () - Double tap for radar
-    onHoldStart: null,                  // (x, y) - Hold started
-    onHoldEnd: null,                    // () - Hold ended
-    onTwoFingerTap: null,               // () - Pause gesture
+    onTap: null,
+    onDoubleTap: null,
+    onHoldStart: null,
+    onHoldEnd: null,
+    onTwoFingerTap: null,
 
     /**
      * Initialize touch controls
      */
-    init() {
-        this.bindEvents();
-    },
+    init(elementId = 'game-canvas') {
+        if (this.isInitialized) return;
 
-    /**
-     * Bind touch events
-     */
-    bindEvents() {
-        const canvas = document.getElementById('game-canvas');
-        if (!canvas) {
-            console.warn('Game canvas not found for touch controls');
+        this.targetElement = document.getElementById(elementId);
+        if (!this.targetElement) {
+            console.warn('Target element not found:', elementId);
             return;
         }
 
-        canvas.addEventListener('touchstart', (e) => this.handleTouchStart(e), { passive: false });
-        canvas.addEventListener('touchend', (e) => this.handleTouchEnd(e), { passive: false });
-        canvas.addEventListener('touchmove', (e) => this.handleTouchMove(e), { passive: false });
-        canvas.addEventListener('touchcancel', (e) => this.handleTouchCancel(e), { passive: false });
+        this.bindEvents();
+        this.isInitialized = true;
+    },
+
+    /**
+     * Bind all input events
+     */
+    bindEvents() {
+        const el = this.targetElement;
+        const options = { passive: false };
+
+        // Touch events (mobile)
+        this._handlers.touchstart = (e) => this.handleTouchStart(e);
+        this._handlers.touchend = (e) => this.handleTouchEnd(e);
+        this._handlers.touchmove = (e) => this.handleTouchMove(e);
+        this._handlers.touchcancel = (e) => this.handleTouchCancel(e);
+
+        el.addEventListener('touchstart', this._handlers.touchstart, options);
+        el.addEventListener('touchend', this._handlers.touchend, options);
+        el.addEventListener('touchmove', this._handlers.touchmove, options);
+        el.addEventListener('touchcancel', this._handlers.touchcancel, options);
+
+        // Mouse events (desktop fallback)
+        this._handlers.mousedown = (e) => this.handleMouseDown(e);
+        this._handlers.mouseup = (e) => this.handleMouseUp(e);
+        this._handlers.mousemove = (e) => this.handleMouseMove(e);
+        this._handlers.mouseleave = (e) => this.handleMouseLeave(e);
+
+        el.addEventListener('mousedown', this._handlers.mousedown, options);
+        el.addEventListener('mouseup', this._handlers.mouseup, options);
+        el.addEventListener('mousemove', this._handlers.mousemove, options);
+        el.addEventListener('mouseleave', this._handlers.mouseleave, options);
+
+        // Prevent context menu on long press
+        el.addEventListener('contextmenu', (e) => e.preventDefault());
+
+        // Escape key to pause (desktop)
+        this._handlers.keydown = (e) => {
+            if (e.code === 'Escape' && this.enabled && this.onTwoFingerTap) {
+                this.onTwoFingerTap();
+            }
+        };
+        window.addEventListener('keydown', this._handlers.keydown);
     },
 
     /**
@@ -65,7 +111,7 @@ const TouchControls = {
 
         const touches = event.touches;
 
-        // Check for two-finger tap (pause)
+        // Two-finger tap for pause
         if (touches.length === 2) {
             if (this.onTwoFingerTap) {
                 this.onTwoFingerTap();
@@ -73,21 +119,9 @@ const TouchControls = {
             return;
         }
 
-        // Single touch
         if (touches.length === 1) {
             const touch = touches[0];
-            const x = touch.clientX;
-            const y = touch.clientY;
-
-            this.holdPosition = { x, y };
-
-            // Start hold timer
-            this.holdTimer = setTimeout(() => {
-                this.isHolding = true;
-                if (this.onHoldStart) {
-                    this.onHoldStart(x, y);
-                }
-            }, this.holdThreshold);
+            this.startInteraction(touch.clientX, touch.clientY, touch.identifier);
         }
     },
 
@@ -98,48 +132,10 @@ const TouchControls = {
         if (!this.enabled) return;
         event.preventDefault();
 
-        // Clear hold timer
-        if (this.holdTimer) {
-            clearTimeout(this.holdTimer);
-            this.holdTimer = null;
-        }
-
-        // Check if was holding
-        if (this.isHolding) {
-            this.isHolding = false;
-            if (this.onHoldEnd) {
-                this.onHoldEnd();
-            }
-            return;
-        }
-
-        // Handle tap
         const changedTouches = event.changedTouches;
-        if (changedTouches.length === 1) {
+        if (changedTouches.length >= 1) {
             const touch = changedTouches[0];
-            const x = touch.clientX;
-            const y = touch.clientY;
-            const now = Date.now();
-
-            // Check for double-tap
-            const timeSinceLastTap = now - this.lastTap;
-            const distanceFromLastTap = this.getDistance(
-                x, y,
-                this.lastTapPosition.x,
-                this.lastTapPosition.y
-            );
-
-            if (timeSinceLastTap < this.doubleTapThreshold &&
-                distanceFromLastTap < this.doubleTapDistance) {
-                // Double tap detected
-                this.handleDoubleTap();
-                this.lastTap = 0; // Reset to prevent triple-tap
-            } else {
-                // Single tap
-                this.handleTap(x, y);
-                this.lastTap = now;
-                this.lastTapPosition = { x, y };
-            }
+            this.endInteraction(touch.clientX, touch.clientY, touch.identifier);
         }
     },
 
@@ -150,12 +146,137 @@ const TouchControls = {
         if (!this.enabled) return;
         event.preventDefault();
 
+        if (event.touches.length === 1) {
+            const touch = event.touches[0];
+            this.moveInteraction(touch.clientX, touch.clientY, touch.identifier);
+        }
+    },
+
+    /**
+     * Handle touch cancel
+     */
+    handleTouchCancel(event) {
+        this.cancelInteraction();
+    },
+
+    /**
+     * Handle mouse down
+     */
+    handleMouseDown(event) {
+        if (!this.enabled || event.button !== 0) return;
+
+        // Skip if touch device (prevents double events)
+        if (window.DeviceCompat && DeviceCompat.hasTouch) return;
+
+        event.preventDefault();
+        this.isMouseDown = true;
+        this.startInteraction(event.clientX, event.clientY, 'mouse');
+    },
+
+    /**
+     * Handle mouse up
+     */
+    handleMouseUp(event) {
+        if (!this.enabled || event.button !== 0) return;
+        if (!this.isMouseDown) return;
+
+        event.preventDefault();
+        this.isMouseDown = false;
+        this.endInteraction(event.clientX, event.clientY, 'mouse');
+    },
+
+    /**
+     * Handle mouse move
+     */
+    handleMouseMove(event) {
+        if (!this.enabled || !this.isMouseDown) return;
+        this.moveInteraction(event.clientX, event.clientY, 'mouse');
+    },
+
+    /**
+     * Handle mouse leave
+     */
+    handleMouseLeave(event) {
+        if (this.isMouseDown) {
+            this.cancelInteraction();
+            this.isMouseDown = false;
+        }
+    },
+
+    /**
+     * Start an interaction
+     */
+    startInteraction(x, y, id) {
+        this.holdPosition = { x, y };
+        this.activeTouches.set(id, { x, y, startTime: Date.now() });
+
+        // Start hold timer
+        if (this.holdTimer) {
+            clearTimeout(this.holdTimer);
+        }
+
+        this.holdTimer = setTimeout(() => {
+            this.isHolding = true;
+            if (this.onHoldStart) {
+                this.onHoldStart(x, y);
+            }
+        }, this.holdThreshold);
+    },
+
+    /**
+     * End an interaction
+     */
+    endInteraction(x, y, id) {
+        // Clear hold timer
+        if (this.holdTimer) {
+            clearTimeout(this.holdTimer);
+            this.holdTimer = null;
+        }
+
+        // Handle hold end
+        if (this.isHolding) {
+            this.isHolding = false;
+            if (this.onHoldEnd) {
+                this.onHoldEnd();
+            }
+            this.activeTouches.delete(id);
+            return;
+        }
+
+        // Handle tap
+        const now = Date.now();
+        const timeSinceLastTap = now - this.lastTap;
+        const distanceFromLastTap = this.getDistance(
+            x, y,
+            this.lastTapPosition.x,
+            this.lastTapPosition.y
+        );
+
+        if (timeSinceLastTap < this.doubleTapThreshold &&
+            distanceFromLastTap < this.doubleTapDistance) {
+            // Double tap
+            this.handleDoubleTap();
+            this.lastTap = 0;
+        } else {
+            // Single tap
+            if (this.onTap) {
+                this.onTap(x, y);
+            }
+            this.lastTap = now;
+            this.lastTapPosition = { x, y };
+        }
+
+        this.activeTouches.delete(id);
+    },
+
+    /**
+     * Move during interaction
+     */
+    moveInteraction(x, y, id) {
         // Cancel hold if moved too far
         if (this.holdTimer) {
-            const touch = event.touches[0];
             const distance = this.getDistance(
-                touch.clientX,
-                touch.clientY,
+                x, y,
                 this.holdPosition.x,
                 this.holdPosition.y
             );
@@ -165,36 +286,33 @@ const TouchControls = {
                 this.holdTimer = null;
             }
         }
+
+        // Update active touch position
+        if (this.activeTouches.has(id)) {
+            const touch = this.activeTouches.get(id);
+            touch.x = x;
+            touch.y = y;
+        }
     },
 
     /**
-     * Handle touch cancel
+     * Cancel interaction
      */
-    handleTouchCancel(event) {
+    cancelInteraction() {
         if (this.holdTimer) {
             clearTimeout(this.holdTimer);
             this.holdTimer = null;
         }
         this.isHolding = false;
+        this.activeTouches.clear();
     },
 
     /**
-     * Handle single tap
-     */
-    handleTap(x, y) {
-        if (this.onTap) {
-            this.onTap(x, y);
-        }
-    },
-
-    /**
-     * Handle double tap (radar ping)
+     * Handle double tap (radar)
      */
     handleDoubleTap() {
         const now = Date.now();
-        const timeSinceLastRadar = now - this.lastRadar;
-
-        if (timeSinceLastRadar >= this.radarCooldown) {
+        if (now - this.lastRadar >= this.radarCooldown) {
             this.lastRadar = now;
             if (this.onDoubleTap) {
                 this.onDoubleTap();
@@ -203,7 +321,7 @@ const TouchControls = {
     },
 
     /**
-     * Calculate distance between two points
+     * Calculate distance
      */
     getDistance(x1, y1, x2, y2) {
         const dx = x2 - x1;
@@ -212,7 +330,7 @@ const TouchControls = {
     },
 
     /**
-     * Check if radar is available
+     * Check if radar available
      */
     canUseRadar() {
         return (Date.now() - this.lastRadar) >= this.radarCooldown;
@@ -227,51 +345,73 @@ const TouchControls = {
     },
 
     /**
-     * Convert screen coordinates to game coordinates
+     * Convert screen to game coordinates
      */
-    screenToGame(screenX, screenY, canvas, game) {
-        const rect = canvas.getBoundingClientRect();
-        const scaleX = canvas.width / rect.width;
-        const scaleY = canvas.height / rect.height;
+    screenToGame(screenX, screenY) {
+        if (!this.targetElement) return { x: screenX, y: screenY };
+
+        const rect = this.targetElement.getBoundingClientRect();
+        const dpr = window.devicePixelRatio || 1;
 
         return {
-            x: (screenX - rect.left) * scaleX,
-            y: (screenY - rect.top) * scaleY
+            x: (screenX - rect.left) * dpr,
+            y: (screenY - rect.top) * dpr
         };
     },
 
     /**
-     * Enable touch controls
+     * Enable controls
      */
     enable() {
         this.enabled = true;
     },
 
     /**
-     * Disable touch controls
+     * Disable controls
      */
     disable() {
         this.enabled = false;
-        if (this.holdTimer) {
-            clearTimeout(this.holdTimer);
-            this.holdTimer = null;
-        }
-        this.isHolding = false;
+        this.cancelInteraction();
+        this.isMouseDown = false;
     },
 
     /**
-     * Reset state for new game
+     * Reset state
      */
     reset() {
         this.lastTap = 0;
         this.lastRadar = 0;
         this.isHolding = false;
-        if (this.holdTimer) {
-            clearTimeout(this.holdTimer);
-            this.holdTimer = null;
+        this.isMouseDown = false;
+        this.activeTouches.clear();
+        this.cancelInteraction();
+    },
+
+    /**
+     * Cleanup
+     */
+    destroy() {
+        if (!this.targetElement) return;
+
+        const el = this.targetElement;
+
+        // Remove element listeners
+        ['touchstart', 'touchend', 'touchmove', 'touchcancel',
+         'mousedown', 'mouseup', 'mousemove', 'mouseleave'].forEach(event => {
+            if (this._handlers[event]) {
+                el.removeEventListener(event, this._handlers[event]);
+            }
+        });
+
+        // Remove window listeners
+        if (this._handlers.keydown) {
+            window.removeEventListener('keydown', this._handlers.keydown);
         }
+
+        this._handlers = {};
+        this.isInitialized = false;
     }
 };
 
-// Export for use in other modules
+// Export
 window.TouchControls = TouchControls;
