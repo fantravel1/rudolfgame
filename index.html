@@ -2,11 +2,13 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="mobile-web-app-capable" content="yes">
     <meta name="theme-color" content="#1a1a2e">
     <meta name="description" content="Tilt your phone. Shake to boost. Save Christmas. You ARE Rudolf.">
+    <meta name="format-detection" content="telephone=no">
 
     <title>Rudolf Game - Save Christmas!</title>
 
@@ -14,6 +16,10 @@
     <link rel="icon" type="image/png" href="assets/sprites/favicon.png">
     <link rel="apple-touch-icon" href="assets/sprites/icon-192.png">
     <link rel="stylesheet" href="css/game.css">
+
+    <!-- Preload critical resources -->
+    <link rel="preload" href="js/device-compat.js" as="script">
+    <link rel="preload" href="js/game.js" as="script">
 </head>
 <body>
     <!-- Game Container -->
@@ -32,6 +38,12 @@
                 <span class="btn-icon">⚙️</span> Settings
             </button>
             <p class="motion-hint">📱 Hold your phone flat to start</p>
+            <div class="desktop-hint">
+                <strong>Desktop Controls:</strong><br>
+                Arrow Keys / WASD to fly<br>
+                Spacebar to boost<br>
+                Click to deliver presents
+            </div>
         </div>
 
         <!-- Permission Screen -->
@@ -92,6 +104,16 @@
 
             <!-- Game Canvas -->
             <canvas id="game-canvas"></canvas>
+
+            <!-- Boost button for desktop/fallback -->
+            <button id="boost-button" class="boost-button" aria-label="Boost">🔴</button>
+
+            <!-- Keyboard hints for desktop -->
+            <div class="keyboard-hints">
+                <span class="key-hint"><span class="key">WASD</span> Move</span>
+                <span class="key-hint"><span class="key">Space</span> Boost</span>
+                <span class="key-hint"><span class="key">Esc</span> Pause</span>
+            </div>
 
             <!-- Pause Overlay -->
             <div id="pause-overlay" class="overlay hidden">
@@ -156,7 +178,7 @@
             <div class="settings-content">
                 <h2>Settings</h2>
 
-                <div class="setting-group">
+                <div class="setting-group" id="tilt-settings">
                     <label class="setting-label">Tilt Sensitivity</label>
                     <input type="range" id="tilt-sensitivity" min="1" max="10" value="5">
                     <div class="setting-hints">
@@ -165,7 +187,7 @@
                     </div>
                 </div>
 
-                <div class="setting-group">
+                <div class="setting-group" id="shake-settings">
                     <label class="setting-label">Shake Sensitivity</label>
                     <input type="range" id="shake-sensitivity" min="1" max="10" value="5">
                     <div class="setting-hints">
@@ -181,7 +203,7 @@
                     </label>
                 </div>
 
-                <div class="setting-group">
+                <div class="setting-group" id="haptics-settings">
                     <label class="setting-label">
                         <input type="checkbox" id="haptics-toggle" checked>
                         Haptic Feedback
@@ -199,14 +221,15 @@
         </div>
     </div>
 
-    <!-- Audio Elements -->
-    <audio id="audio-wind" loop preload="auto"></audio>
-    <audio id="audio-jingle" loop preload="auto"></audio>
-    <audio id="audio-boost" preload="auto"></audio>
-    <audio id="audio-deliver" preload="auto"></audio>
-    <audio id="audio-powerup" preload="auto"></audio>
+    <!-- Audio Elements (preload none for performance) -->
+    <audio id="audio-wind" loop preload="none"></audio>
+    <audio id="audio-jingle" loop preload="none"></audio>
+    <audio id="audio-boost" preload="none"></audio>
+    <audio id="audio-deliver" preload="none"></audio>
+    <audio id="audio-powerup" preload="none"></audio>
 
-    <!-- Scripts -->
+    <!-- Scripts - Device compat must load first -->
+    <script src="js/device-compat.js"></script>
     <script src="js/controls/haptics.js"></script>
     <script src="js/controls/tilt.js"></script>
     <script src="js/controls/shake.js"></script>
@@ -229,6 +252,13 @@
                     .catch(err => console.log('SW registration failed:', err));
             });
         }
+
+        // Add desktop mode class if needed
+        document.addEventListener('DOMContentLoaded', () => {
+            if (window.DeviceCompat && DeviceCompat.needsFallbackControls()) {
+                document.body.classList.add('desktop-mode');
+            }
+        });
     </script>
 </body>
 </html>
